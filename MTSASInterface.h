@@ -1,4 +1,4 @@
-/* C027 implementation of NetworkInterfaceAPI
+/* MTSAS implementation of NetworkInterfaceAPI
  * Copyright (c) 2015 ARM Limited
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,21 +18,24 @@
 #define MTSAS_INTERFACE_H
 
 #include "mbed.h"
-#include "mtsas.h"
+#include "ATParser.h" 
+#define MTSAS_SOCKET_COUNT 6
  
- 
-/** C027Interface class
- *  Implementation of the NetworkInterface for C027
+/** MTSASInterface class
+ *  Implementation of the NetworkInterface for MTSAS 
  */
 class MTSASInterface : public NetworkStack, public CellularInterface
 {
 public:
-    /** C027Interfacelifetime
-     * @param simpin    Optional PIN for the SIM
-     * @param debug     Enable debugging
+    /** MTSASInterface
+     * @param tx      TX for radio communication
+     * @param rx      RX  for radio communication
+     * @param debug   Print out AT comands
+     * @param on_batt boolean for when the board is on the battery pack
      */
-    MTSASInterface(const char *simpin=0, bool debug=false, bool on_batt=1);
+    MTSASInterface(PinName tx, PinName rx, bool debug=false, bool on_batt=1);
 
+    ~MTSASInterface();
     /** Set the cellular network APN and credentials
      *
      *  @param apn      Optional name of the network to connect to
@@ -77,6 +80,8 @@ public:
      */
     virtual const char *get_mac_address();
  
+    nsapi_error_t gethostbyname(const char* name, SocketAddress *address, nsapi_version_t version);
+
 protected:
 
     /** Provide access to the NetworkStack object
@@ -183,14 +188,17 @@ protected:
      *  @note Callback may be called in an interrupt context.
      */
     virtual void socket_attach(void *handle, void (*callback)(void *), void *data);
- 
+    
+    virtual bool registered();
+    virtual bool set_ip_addr();    
+    virtual nsapi_error_t init();
 private:
-    // Modem object
+    int context;
+    bool _socket_ids[MTSAS_SOCKET_COUNT];
+    SocketAddress ip_addr;
     bool _debug;
-    // The MTSSerialFlowControl object represents the physical serial link between the processor and the cellular radio.
-    mts::MTSSerialFlowControl* io;
-    // The Cellular object represents the cellular radio.
-    mts::Cellular* radio;
+    BufferedSerial _serial;
+    ATParser _parser;
     SocketAddress _ip_address;
     char _mac_address[NSAPI_MAC_SIZE];
     char _pin[sizeof("1234")];
@@ -198,9 +206,16 @@ private:
     struct {
         void (*callback)(void *);
         void *data;
-    } _cbs;
+    } _cbs[MTSAS_SOCKET_COUNT];
     DigitalOut bc_nce;
-    mts::Cellular::Radio type;
+    //Set DCD - The radio will raise and lower this line
+    DigitalOut DCD;
+    /* Set DTR - This line should be lowered when we want to talk to the radio and raised when we're done
+    * for now we will lower it in the constructor and raise it in the destructor.
+    */
+    DigitalOut DTR;
+    //Set RESET - Set the hardware reset line to the radio
+    DigitalOut reset;
 };
 
 #endif

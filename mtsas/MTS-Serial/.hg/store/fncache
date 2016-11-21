@@ -1,7 +1,0 @@
-data/MTSBufferedIO.h.i
-data/MTSBufferedIO.cpp.i
-data/MTSSerial.cpp.i
-data/MTSSerial.h.i
-data/.hgignore.i
-data/MTSSerialFlowControl.h.i
-data/MTSSerialFlowControl.cpp.i
