@@ -33,7 +33,7 @@ public:
      * @param debug   Print out AT comands
      * @param on_batt boolean for when the board is on the battery pack
      */
-    MTSASInterface(PinName tx, PinName rx, bool debug=false, bool on_batt=1);
+    MTSASInterface(PinName tx, PinName rx, bool debug=false);
 
     ~MTSASInterface();
     /** Set the cellular network APN and credentials
@@ -207,13 +207,6 @@ private:
         void (*callback)(void *);
         void *data;
     } _cbs[MTSAS_SOCKET_COUNT];
-    DigitalOut bc_nce;
-    //Set DCD - The radio will raise and lower this line
-    DigitalOut DCD;
-    /* Set DTR - This line should be lowered when we want to talk to the radio and raised when we're done
-    * for now we will lower it in the constructor and raise it in the destructor.
-    */
-    DigitalOut DTR;
     //Set RESET - Set the hardware reset line to the radio
     DigitalOut reset;
 };
