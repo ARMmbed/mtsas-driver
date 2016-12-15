@@ -31,11 +31,15 @@ MTSASInterface::MTSASInterface(PinName tx, PinName rx, bool debug)
     : _serial(tx, rx, 1024), _parser(_serial), reset(PinName(RESET))
 {
     _parser.debugOn(debug);
-    _debug = debug;
-
-    _serial.baud(115200);
+    // Register message indicating incoming data as out of band 
+    // data (data that can come at any time)
+    _parser.oob("SRING:",callback(this, &MTSASInterface::event));
     _parser.setTimeout(3000);
-    _serial.attach(this, &MTSASInterface::event);
+    _debug = debug;
+    _serial.baud(115200);
+    // Serial RX will signal the event thread
+    _serial.attach(callback(this, &MTSASInterface::rx_sem_release));
+    event_thread.start(callback(this, &MTSASInterface::handle_event));
     memset(_socket_ids, 0 , sizeof(_socket_ids));
     memset(_cbs, 0, sizeof(_cbs));
     //PDP context
@@ -48,24 +52,26 @@ MTSASInterface::~MTSASInterface(){
 nsapi_error_t MTSASInterface::set_credentials(const char *apn,
     const char *username , const char *password)
 {
+    at_mutex.lock();
     for (int i=1; i < MTSAS_SOCKET_COUNT; i++){
         //Socket configuration 
         //AT#SCFG=<socket id>,<PDP context>,<packet size default 300>,
-                //<exchange timeout>,<connection to>,<txto>
+        //        <exchange timeout>,<connection to>,<txto>
         _parser.send("AT#SCFG=%d,%d,0,0,600,0",i,context);
         _parser.recv("OK");
     }
     //Activate the PDP context 
-
+    int ret = NSAPI_ERROR_DEVICE_ERROR;
     if (_parser.send("AT+CGDCONT=%d,\"IP\",\"%s\"", context, apn) && _parser.recv("OK"))
-        return 0;
-    return NSAPI_ERROR_DEVICE_ERROR;
+        ret = 0;
+    at_mutex.unlock();
+    return ret;
 }
 
 nsapi_error_t MTSASInterface::init()
 {
     _parser.setTimeout(10000);
-
+    at_mutex.lock();
     //Reboot the chip
     _parser.send("AT#REBOOT");
     _parser.recv("OK");
@@ -82,6 +88,7 @@ nsapi_error_t MTSASInterface::init()
     _parser.recv("OK");
     _parser.send("AT+CGMM");
     _parser.recv("OK");
+    at_mutex.unlock();
     return 0;
 }
 
@@ -95,24 +102,24 @@ bool MTSASInterface::registered()
 {
     //Get the network registation
     int stat = NOT_REGISTERED;
-
-    int RETRIES = 20;
+    at_mutex.lock();    
     _parser.send("AT+CREG?");
     _parser.recv("+CREG:%*d,%d", &stat);
     _parser.recv("OK"); 
     //Keep trying if we are searching for a registration
     while(stat == SEARCHING){
-    	_parser.send("AT+CREG?");
-    	_parser.recv("+CREG:%*d,%d", &stat);
-    	_parser.recv("OK");
-   	}
+        _parser.send("AT+CREG?");
+        _parser.recv("+CREG:%*d,%d", &stat);
+        _parser.recv("OK");
+    }
+    at_mutex.unlock();
     return (stat == REGISTERED || stat == ROAMING);
 }
 bool MTSASInterface::set_ip_addr()
 {
     char* ip_buff = (char*)malloc(256);
-    bool res = false;   
-
+    bool res = false; 
+    at_mutex.lock();  
     //Try a few times to get an IP address 
     for (int i=0; i<5; i++){
         res  = _parser.send("AT#SGACT=%d,1", context) && 
@@ -120,8 +127,8 @@ bool MTSASInterface::set_ip_addr()
                _parser.recv("OK");
         if(res)
             break;
-    }
- 
+    } 
+    at_mutex.unlock();
     res = res && _ip_address.set_ip_address(ip_buff);
     free(ip_buff);
     return res;
@@ -137,8 +144,12 @@ nsapi_error_t MTSASInterface::connect()
 nsapi_error_t MTSASInterface::disconnect() 
 {
     //Deactivate PDP context (frees any network resources associated with context)
-    return (_parser.send("AT#SGACT=%d,0",context) && _parser.recv("OK")) ? 0 : NSAPI_ERROR_DEVICE_ERROR; 
+    at_mutex.lock();    
+    int ret = (_parser.send("AT#SGACT=%d,0",context) && _parser.recv("OK")) ? 0 : NSAPI_ERROR_DEVICE_ERROR; 
+    at_mutex.unlock();
+    return ret;
 }
+
 const char *MTSASInterface::get_ip_address()
 {
     if(_ip_address.get_ip_address() == NULL){
@@ -146,6 +157,7 @@ const char *MTSASInterface::get_ip_address()
     }
     return _ip_address.get_ip_address();
 }
+
 const char *MTSASInterface::get_mac_address()
 {
     return 0;
@@ -155,15 +167,17 @@ nsapi_error_t MTSASInterface::gethostbyname(const char* name, SocketAddress *add
 { 
     char* ip_buff = (char*)malloc(256);
     //Execute DNS query
-
-    if (!_parser.send("AT#QDNS=%s",name) || !_parser.recv("#QDNS:%*[^,],\"%[^\"]\"%*[\r]%*[\n]", ip_buff)){
-        return NSAPI_ERROR_DEVICE_ERROR;
+    at_mutex.lock();
+    int ret = 0;
+    if (!_parser.send("AT#QDNS=%s",name) || !_parser.recv("#QDNS:%*[^,],\"%[^\"]\"%*[\r]%*[\n]", ip_buff) || !_parser.recv("OK")){
+        ret = NSAPI_ERROR_DEVICE_ERROR;
+    } 
+    else{
+        address->set_ip_address(ip_buff);
     }
-    address->set_ip_address(ip_buff);
-
+    at_mutex.unlock();
     free(ip_buff);
-
-    return 0; 
+    return ret; 
 }
  
 NetworkStack *MTSASInterface::get_stack()
@@ -176,7 +190,7 @@ struct mtsas_socket {
     bool connected;
     int port;
     int id;
-	  SocketAddress addr;
+    SocketAddress addr;
 };
 
 int MTSASInterface::socket_open(void **handle, nsapi_protocol_t proto)
@@ -187,6 +201,7 @@ int MTSASInterface::socket_open(void **handle, nsapi_protocol_t proto)
         if (!_socket_ids[i]){
             // IDS 1-6 valid
             id = i+1;
+            // Mark the socket in use
             _socket_ids[i] = true;
             break;
         }
@@ -207,8 +222,11 @@ int MTSASInterface::socket_close(void *handle)
 {
     struct mtsas_socket *socket = (struct mtsas_socket *)handle;
     //Issue socket close command
-
-    if (_parser.send("AT#SH=%d",socket->id) && _parser.recv("OK")){
+    at_mutex.lock();
+    bool result = (_parser.send("AT#SH=%d",socket->id) && _parser.recv("OK"));   
+    at_mutex.unlock();
+    if (result){
+        //Mark the socket not in use
         _socket_ids[socket->id-1] = false;
         delete socket;
         return 0;
@@ -233,14 +251,15 @@ int MTSASInterface::socket_connect(void *handle, const SocketAddress &address)
         return 0;
     }
     uint16_t typeSocket = (socket->proto == NSAPI_UDP) ? 1 : 0;
+    at_mutex.lock();
     //Socket dial SD=[socket id], [UDP or TCP], [Remote port], [Remote addr]
-    if(_parser.send("AT#SD=%d,%d,%d,\"%s\",0,1,1", socket->id, typeSocket, 
-       address.get_port(), address.get_ip_address()) &&
-       _parser.recv("OK")){
-            socket->connected = true;
-
-            return 0;
-
+    bool res =  (_parser.send("AT#SD=%d,%d,%d,\"%s\",0,1,1", socket->id, typeSocket, 
+                 address.get_port(), address.get_ip_address()) &&
+                _parser.recv("OK"));
+    at_mutex.unlock();
+    if (res){
+        socket->connected = true;
+        return 0;
     }
     return NSAPI_ERROR_DEVICE_ERROR;
 }
@@ -253,16 +272,17 @@ int MTSASInterface::socket_accept(nsapi_socket_t server,
 
 int MTSASInterface::socket_send(void *handle, const void *data, unsigned size)
 {
-
     struct mtsas_socket *socket = (struct mtsas_socket *)handle;   
     int amnt_sent = -1;
-
+    //Issue send command SSENDEXT=[socket id], [# bytes to send]
+    at_mutex.lock();
     if(_parser.send("AT#SSENDEXT=%d,%d",socket->id, size)){
         //OK to write message
         _parser.recv("> ");
         amnt_sent = _parser.write((char *)data, (int)size);
         _parser.recv("OK");
     }
+    at_mutex.unlock();
     return amnt_sent;
 }
 
@@ -270,26 +290,16 @@ int MTSASInterface::socket_recv(void *handle, void *data, unsigned size)
 {
     struct mtsas_socket *socket = (struct mtsas_socket *)handle;   
     int amnt_rcv = -1;
-    uint16_t typeSocket = (socket->proto == NSAPI_UDP) ? 1 : 0;
-
+    //Paramater size is desired # bytes, recv_size is bytes actually on socket
     int recv_size = 0;
+    at_mutex.lock();
     //Issue send command SRECV=[socket id], [# bytes to recv]
     if(_parser.send("AT#SRECV=%d,%d",socket->id, size) && _parser.recv("#SRECV:%d,%d%*[\r]%*[\n]", socket->id, &recv_size)){
         amnt_rcv = _parser.read((char *)data, (int)recv_size);
         _parser.recv("OK");
     }
-    if (amnt_rcv == -1) {
-        if (_debug){
-            //See socket information
-            int received = 0;
-            int buff_in = 0;
-            int sent = 0;
-            int ack_waiting = 0;
-            _parser.send("AT#SI=%d", socket->id);
-            _parser.recv("#SI: %*d,%d,%d,%d,%d", &sent, &received, &buff_in, &ack_waiting);
-            _parser.recv("OK");
-        }
-
+    at_mutex.unlock();
+    if (amnt_rcv == -1 || amnt_rcv == 0) {
         return NSAPI_ERROR_WOULD_BLOCK;
     }
     return amnt_rcv;
@@ -298,21 +308,20 @@ int MTSASInterface::socket_recv(void *handle, void *data, unsigned size)
 int MTSASInterface::socket_sendto(void *handle, const SocketAddress &address, const void *data, unsigned size)
 {
     struct mtsas_socket *socket = (struct mtsas_socket *)handle;
-    
-		if (socket->connected && socket->addr != address) {
+    if (socket->connected && socket->addr != address) {
         if (socket_close(&handle) != 0) {
             return NSAPI_ERROR_DEVICE_ERROR;
         }
         socket->connected = false;
-		}
-	
-		if (!socket->connected) {
+    }
+
+    if (!socket->connected) {
         int err = socket_connect(socket, address);
         if (err < 0) {
             return err;
         }
-				socket->addr = address;
-		}
+        socket->addr = address;
+    }
     return socket_send(socket, data, size);
 }
 
@@ -320,7 +329,7 @@ int MTSASInterface::socket_recvfrom(void *handle, SocketAddress *address, void *
 {
     struct mtsas_socket *socket = (struct mtsas_socket *)handle;   
     int ret = socket_recv(socket, (char *)buffer, size);
-		if (ret >= 0 && address) {
+    if (ret >= 0 && address) {
         *address = socket->addr;
     }
     return ret;
@@ -331,6 +340,28 @@ void MTSASInterface::socket_attach(void *handle, void (*callback)(void *), void 
     struct mtsas_socket *socket = (struct mtsas_socket *)handle;   
     _cbs[socket->id-1].callback = callback;
     _cbs[socket->id-1].data = data;
+}
+
+void MTSASInterface::rx_sem_release(){
+    rx_sem.release();
+}
+
+void MTSASInterface::handle_event(){
+    while(true){
+        //Wait for signal from serial RX
+        rx_sem.wait();
+        //Unlock the mutex controlling AT command execution
+        at_mutex.lock();
+        _parser.setTimeout(0);
+        //Check for SRING incoming data
+        bool res = (_parser.recv("SRING:%*d"));       
+        _parser.setTimeout(3000);
+        at_mutex.unlock();
+        if(res){
+            //Raise an event if the socket has data
+            event();
+        }
+    }
 }
 
 void MTSASInterface::event() {

@@ -192,6 +192,7 @@ protected:
     virtual bool registered();
     virtual bool set_ip_addr();    
     virtual nsapi_error_t init();
+		
 private:
     int context;
     bool _socket_ids[MTSAS_SOCKET_COUNT];
@@ -199,10 +200,15 @@ private:
     bool _debug;
     BufferedSerial _serial;
     ATParser _parser;
+    Thread event_thread;
+    Mutex at_mutex;
     SocketAddress _ip_address;
+    Semaphore rx_sem;
     char _mac_address[NSAPI_MAC_SIZE];
     char _pin[sizeof("1234")];
-    void event();
+    void event(); 	
+    void handle_event();
+    void rx_sem_release();
     struct {
         void (*callback)(void *);
         void *data;
