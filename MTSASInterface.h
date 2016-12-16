@@ -189,32 +189,33 @@ protected:
      */
     virtual void socket_attach(void *handle, void (*callback)(void *), void *data);
     
+
     virtual bool registered();
     virtual bool set_ip_addr();    
     virtual nsapi_error_t init();
+
 		
 private:
-    int context;
-    bool _socket_ids[MTSAS_SOCKET_COUNT];
-    SocketAddress ip_addr;
-    bool _debug;
-    BufferedSerial _serial;
-    ATParser _parser;
-    Thread event_thread;
-    Mutex at_mutex;
-    SocketAddress _ip_address;
-    Semaphore rx_sem;
-    char _mac_address[NSAPI_MAC_SIZE];
-    char _pin[sizeof("1234")];
-    void event(); 	
-    void handle_event();
-    void rx_sem_release();
+    int context;                            // CELL PDP context
+    // AT Parser variables
+    bool _debug;                            // debug print for AT parser
+    BufferedSerial _serial;                 // Serial object for parser to communicate with radio
+    ATParser _parser;                       // Send AT commands and parse responses
+    Thread event_thread;                    // Thread to poll for SRING indicating incoming socket data
+    Mutex at_mutex;                         // Mutex that only allows one thread at a time to execute AT Commands
+    SocketAddress _ip_address;              // Local IP address
+    Semaphore rx_sem;                       // Semphore to signal event_thread to check SRING
+    char _mac_address[NSAPI_MAC_SIZE];      // local Mac
+    char _pin[sizeof("1234")];              // Cell pin
+    void event();                           // Event signifying socket rcv data 	
+    void handle_event();                    // To be used by event_thread to check SRING 
+    void rx_sem_release();                  // To attached to buffered serial to signal thread that RX on serial line
+    bool _socket_ids[MTSAS_SOCKET_COUNT];   // array of available sockets
     struct {
         void (*callback)(void *);
         void *data;
-    } _cbs[MTSAS_SOCKET_COUNT];
-    //Set RESET - Set the hardware reset line to the radio
-    DigitalOut reset;
+    } _cbs[MTSAS_SOCKET_COUNT];             //Callbacks for socket_attach 
+    DigitalOut reset;                       //Set RESET - Set the hardware reset line to the radio 
 };
 
 #endif
