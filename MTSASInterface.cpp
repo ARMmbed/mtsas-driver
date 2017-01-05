@@ -46,7 +46,6 @@ MTSASInterface::MTSASInterface(PinName tx, PinName rx, bool debug)
     context = 1;
 }
 MTSASInterface::~MTSASInterface(){
-
 }
 
 nsapi_error_t MTSASInterface::set_credentials(const char *apn,
@@ -371,4 +370,42 @@ void MTSASInterface::event() {
         }
     }
 }
- 
+
+////////////////////////////////////////////////////////////////////////
+//GPS Functions 
+////////////////////////////////////////////////////////////////////////
+
+int MTSASInterface::get_gps_state(){
+    int state;
+    _parser.send("AT$GPSP?");
+    _parser.recv("$GPSP: %d", &state);
+    _parser.recv("OK");
+    return state;
+}
+
+bool MTSASInterface::set_gps_state(int state){
+    bool res = true;
+    if(get_gps_state() != state){
+       res = _parser.send("AT$GPSP=%d", state) && _parser.recv("OK");
+    }
+    return res;
+}
+
+bool MTSASInterface::get_gps_location(char* UTC, char* latitude, char* longitude, char* altitude){
+    at_mutex.lock();
+    //enable GPS
+    set_gps_state(1); 
+    bool res = _parser.send("AT$GPSACP") && _parser.recv("OK");
+    Timer t;
+    t.start(); 
+    bool resp = false;
+    while(!resp && t.read()<120){
+        _parser.send("AT$GPSACP");
+        resp = _parser.recv("$GPSACP:%[^,],%[^,],%[^,],%*[^,],%[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^\n]", UTC, latitude, longitude, altitude);
+        _parser.recv("OK");
+        wait(4);
+    }
+    set_gps_state(0);
+    at_mutex.unlock();
+    return resp;
+}

@@ -82,7 +82,11 @@ public:
  
     nsapi_error_t gethostbyname(const char* name, SocketAddress *address, nsapi_version_t version);
 
+    virtual bool get_gps_location(char* UTC, char* latitude, char* longitde, char* altitud);   
 protected:
+    virtual bool set_gps_state(int state);
+    virtual int get_gps_state();
+  
 
     /** Provide access to the NetworkStack object
      *
