@@ -27,6 +27,10 @@ enum registration_status {  NOT_REGISTERED = 0,
                             UNKNOWN = 4, 
                             ROAMING = 5};
 
+#define MTSAS_MISC_TIMEOUT 3000
+#define MTSAS_RESTART_TIMEOUT 10000
+#define MTSAS_COMMUNICATION_TIMEOUT 100
+
 MTSASInterface::MTSASInterface(PinName tx, PinName rx, bool debug)
     : _serial(tx, rx, 1024), _parser(_serial), reset(PinName(RESET))
 {
@@ -34,7 +38,7 @@ MTSASInterface::MTSASInterface(PinName tx, PinName rx, bool debug)
     // Register message indicating incoming data as out of band 
     // data (data that can come at any time)
     _parser.oob("SRING:",callback(this, &MTSASInterface::event));
-    _parser.setTimeout(3000);
+    _parser.setTimeout(MTSAS_MISC_TIMEOUT);
     _debug = debug;
     _serial.baud(115200);
     // Serial RX will signal the event thread
@@ -69,12 +73,12 @@ nsapi_error_t MTSASInterface::set_credentials(const char *apn,
 
 nsapi_error_t MTSASInterface::init()
 {
-    _parser.setTimeout(10000);
+    _parser.setTimeout(MTSAS_RESTART_TIMEOUT);
     at_mutex.lock();
     //Reboot the chip
     _parser.send("AT#REBOOT");
     _parser.recv("OK");
-    _parser.setTimeout(3000);
+    _parser.setTimeout(MTSAS_MISC_TIMEOUT);
     //Wait for response after reboot
     for (int i = 0; i < 10; i++){
         if (_parser.send("AT") && _parser.recv("OK")){
@@ -273,6 +277,7 @@ int MTSASInterface::socket_send(void *handle, const void *data, unsigned size)
 {
     struct mtsas_socket *socket = (struct mtsas_socket *)handle;   
     int amnt_sent = -1;
+    _parser.setTimeout(MTSAS_COMMUNICATION_TIMEOUT);
     //Issue send command SSENDEXT=[socket id], [# bytes to send]
     at_mutex.lock();
     if(_parser.send("AT#SSENDEXT=%d,%d",socket->id, size)){
@@ -291,6 +296,7 @@ int MTSASInterface::socket_recv(void *handle, void *data, unsigned size)
     int amnt_rcv = -1;
     //Paramater size is desired # bytes, recv_size is bytes actually on socket
     int recv_size = 0;
+    _parser.setTimeout(MTSAS_COMMUNICATION_TIMEOUT);
     at_mutex.lock();
     //Issue send command SRECV=[socket id], [# bytes to recv]
     if(_parser.send("AT#SRECV=%d,%d",socket->id, size) && _parser.recv("#SRECV:%d,%d%*[\r]%*[\n]", socket->id, &recv_size)){
@@ -354,7 +360,7 @@ void MTSASInterface::handle_event(){
         _parser.setTimeout(0);
         //Check for SRING incoming data
         bool res = (_parser.recv("SRING:%*d"));       
-        _parser.setTimeout(3000);
+        _parser.setTimeout(MTSAS_MISC_TIMEOUT);
         at_mutex.unlock();
         if(res){
             //Raise an event if the socket has data
