@@ -17,6 +17,8 @@
  * Parser for the AT command syntax
  *
  */
+#ifndef AT_PARSER_H
+#define AT_PARSER_H
 
 #include "mbed.h"
 #include <cstdarg>
@@ -229,4 +231,4 @@ public:
     */
     void flush();
 };
-
+#endif
