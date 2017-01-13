@@ -20,6 +20,14 @@
 #include "mbed.h"
 #include "ATParser.h" 
 #define MTSAS_SOCKET_COUNT 6
+
+struct gps_data{
+    char latitude[25];
+    char longitude[25];
+    char UTC[25];
+    char altitude[25];
+};
+
  
 /** MTSASInterface class
  *  Implementation of the NetworkInterface for MTSAS 
@@ -82,7 +90,7 @@ public:
  
     nsapi_error_t gethostbyname(const char* name, SocketAddress *address, nsapi_version_t version);
 
-    virtual bool get_gps_location(char* UTC, char* latitude, char* longitde, char* altitud);   
+    virtual gps_data get_gps_location();   
 protected:
     virtual bool set_gps_state(int state);
     virtual int get_gps_state();

@@ -397,21 +397,22 @@ bool MTSASInterface::set_gps_state(int state){
     return res;
 }
 
-bool MTSASInterface::get_gps_location(char* UTC, char* latitude, char* longitude, char* altitude){
+gps_data MTSASInterface::get_gps_location(){
     at_mutex.lock();
     //enable GPS
     set_gps_state(1); 
+    struct gps_data data = {"None", "None", "None", "None"};
     bool res = _parser.send("AT$GPSACP") && _parser.recv("OK");
     Timer t;
     t.start(); 
     bool resp = false;
     while(!resp && t.read()<120){
         _parser.send("AT$GPSACP");
-        resp = _parser.recv("$GPSACP:%[^,],%[^,],%[^,],%*[^,],%[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^\n]", UTC, latitude, longitude, altitude);
+        resp = _parser.recv("$GPSACP:%[^,],%[^,],%[^,],%*[^,],%[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^\n]", data.UTC, data.latitude, data.longitude, data.altitude);
         _parser.recv("OK");
         wait(4);
     }
     set_gps_state(0);
     at_mutex.unlock();
-    return resp;
+    return data;
 }
