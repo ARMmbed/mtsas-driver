@@ -277,9 +277,9 @@ int MTSASInterface::socket_send(void *handle, const void *data, unsigned size)
 {
     struct mtsas_socket *socket = (struct mtsas_socket *)handle;   
     int amnt_sent = -1;
-    _parser.setTimeout(MTSAS_COMMUNICATION_TIMEOUT);
     //Issue send command SSENDEXT=[socket id], [# bytes to send]
     at_mutex.lock();
+    _parser.setTimeout(MTSAS_COMMUNICATION_TIMEOUT);
     if(_parser.send("AT#SSENDEXT=%d,%d",socket->id, size)){
         //OK to write message
         _parser.recv("> ");
@@ -296,8 +296,8 @@ int MTSASInterface::socket_recv(void *handle, void *data, unsigned size)
     int amnt_rcv = -1;
     //Paramater size is desired # bytes, recv_size is bytes actually on socket
     int recv_size = 0;
-    _parser.setTimeout(MTSAS_COMMUNICATION_TIMEOUT);
     at_mutex.lock();
+    _parser.setTimeout(MTSAS_COMMUNICATION_TIMEOUT);
     //Issue send command SRECV=[socket id], [# bytes to recv]
     if(_parser.send("AT#SRECV=%d,%d",socket->id, size) && _parser.recv("#SRECV:%d,%d%*[\r]%*[\n]", socket->id, &recv_size)){
         amnt_rcv = _parser.read((char *)data, (int)recv_size);
