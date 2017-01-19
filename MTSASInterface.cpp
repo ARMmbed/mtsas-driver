@@ -383,22 +383,25 @@ void MTSASInterface::event() {
 
 int MTSASInterface::get_gps_state(){
     int state;
+    at_mutex.lock();
     _parser.send("AT$GPSP?");
     _parser.recv("$GPSP: %d", &state);
     _parser.recv("OK");
+    at_mutex.unlock();
     return state;
 }
 
 bool MTSASInterface::set_gps_state(int state){
     bool res = true;
     if(get_gps_state() != state){
-       res = _parser.send("AT$GPSP=%d", state) && _parser.recv("OK");
+        at_mutex.lock();
+        res = _parser.send("AT$GPSP=%d", state) && _parser.recv("OK");
+        at_mutex.unlock();
     }
     return res;
 }
 
 gps_data MTSASInterface::get_gps_location(){
-    at_mutex.lock();
     //enable GPS
     set_gps_state(1); 
     struct gps_data data = {"None", "None", "None", "None"};
@@ -407,12 +410,13 @@ gps_data MTSASInterface::get_gps_location(){
     t.start(); 
     bool resp = false;
     while(!resp && t.read()<120){
+        at_mutex.lock();
         _parser.send("AT$GPSACP");
         resp = _parser.recv("$GPSACP:%[^,],%[^,],%[^,],%*[^,],%[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^\n]", data.UTC, data.latitude, data.longitude, data.altitude);
         _parser.recv("OK");
+        at_mutex.unlock();
         wait(4);
     }
     set_gps_state(0);
-    at_mutex.unlock();
     return data;
 }
