@@ -15,7 +15,7 @@
  */
  
 #include "MTSASInterface.h"
- 
+#include <string> 
 /** MTSASInterface class
  *  Implementation of the NetworkInterface for MTS DRAGONFLY
  */
@@ -401,6 +401,34 @@ bool MTSASInterface::set_gps_state(int state){
     return res;
 }
 
+int find_dir(char* coord){
+    int i = 0;
+    while (coord[i] != 'W' && coord[i] != 'N' && coord[i] != 'S' && coord[i] != 'E'){
+        i++;
+    }
+    char dir = coord[i];
+    return (dir == 'W' || dir == 'S') ? -1 : 1;
+}
+
+void format_data(gps_data* data){
+    char lat_deg[2];
+    char long_deg[3];
+    char lat_min[6];
+    char long_min[6];
+    strncpy(lat_deg, data->latitude, 2);
+    strncpy(long_deg, data->longitude, 3);
+    strncpy(lat_min, data->latitude+2, 6);
+    strncpy(long_min, data->longitude+3, 6);
+    int lat_dir = find_dir(data->latitude);
+    int long_dir = find_dir(data->longitude);
+    memset(&data->longitude[0], 0, sizeof(data->longitude));
+    memset(&data->latitude[0], 0, sizeof(data->latitude));
+    float lat = lat_dir * (std::atof(lat_deg) + std::atof(lat_min)/60);
+    float lon = long_dir * (std::atof(long_deg) + std::atof(long_min)/60);
+    sprintf(data->latitude, "%f", lat);
+    sprintf(data->longitude, "%f", lon);
+}
+    
 gps_data MTSASInterface::get_gps_location(){
     //enable GPS
     set_gps_state(1); 
@@ -418,5 +446,8 @@ gps_data MTSASInterface::get_gps_location(){
         wait(4);
     }
     set_gps_state(0);
+    if(resp){
+        format_data(&data);
+    }
     return data;
 }
