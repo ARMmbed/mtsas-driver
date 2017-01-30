@@ -91,6 +91,8 @@ public:
     nsapi_error_t gethostbyname(const char* name, SocketAddress *address, nsapi_version_t version);
 
     virtual gps_data get_gps_location();   
+    virtual void get_imei(char* imei);
+
 protected:
     virtual bool set_gps_state(int state);
     virtual int get_gps_state();

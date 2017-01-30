@@ -118,6 +118,7 @@ bool MTSASInterface::registered()
     at_mutex.unlock();
     return (stat == REGISTERED || stat == ROAMING);
 }
+
 bool MTSASInterface::set_ip_addr()
 {
     char* ip_buff = (char*)malloc(256);
@@ -144,6 +145,7 @@ nsapi_error_t MTSASInterface::connect()
     }
     return 0;
 }
+
 nsapi_error_t MTSASInterface::disconnect() 
 {
     //Deactivate PDP context (frees any network resources associated with context)
@@ -378,7 +380,17 @@ void MTSASInterface::event() {
 }
 
 ////////////////////////////////////////////////////////////////////////
-//GPS Functions 
+//Cell module methods
+////////////////////////////////////////////////////////////////////////
+void MTSASInterface::get_imei(char* imei){
+    at_mutex.lock();
+    _parser.send("AT#CGSN");
+    _parser.recv("#CGSN: %s%*[\r]%*[\n]", imei);
+    at_mutex.unlock();
+}
+
+////////////////////////////////////////////////////////////////////////
+//GPS module methods
 ////////////////////////////////////////////////////////////////////////
 
 int MTSASInterface::get_gps_state(){
