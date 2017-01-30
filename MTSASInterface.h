@@ -90,7 +90,7 @@ public:
  
     nsapi_error_t gethostbyname(const char* name, SocketAddress *address, nsapi_version_t version);
 
-    virtual gps_data get_gps_location();   
+    virtual gps_data get_gps_location(const char* lat_default="None", const char* lon_default="None");   
     virtual void get_imei(char* imei);
 
 protected:

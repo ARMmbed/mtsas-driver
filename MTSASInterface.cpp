@@ -441,7 +441,7 @@ void format_data(gps_data* data){
     sprintf(data->longitude, "%f", lon);
 }
     
-gps_data MTSASInterface::get_gps_location(){
+gps_data MTSASInterface::get_gps_location(const char* lat_default, const char* lon_default){
     //enable GPS
     set_gps_state(1); 
     struct gps_data data = {"None", "None", "None", "None"};
@@ -460,6 +460,10 @@ gps_data MTSASInterface::get_gps_location(){
     set_gps_state(0);
     if(resp){
         format_data(&data);
+    }
+    else{
+        strcpy(data.latitude, lat_default);
+        strcpy(data.longitude, lon_default);
     }
     return data;
 }
