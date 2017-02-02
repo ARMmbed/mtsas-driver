@@ -94,6 +94,7 @@ public:
      *  @param lat_default  the default latitude if gps module fails to get a fix
      *  @param lon_default  the defauly longitude if gps module fails to get a fix
      *  @return             struct of type gps_data
+     *  @note               Coordinates will be returned in the ISO 6709 format
      */
     virtual gps_data get_gps_location(const char* lat_default="None", const char* lon_default="None");   
     

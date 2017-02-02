@@ -452,6 +452,7 @@ void MTSASInterface::handle_sms_event(){
 int MTSASInterface::get_gps_state(){
     int state;
     at_mutex.lock();
+    //Query the gps status
     _parser.send("AT$GPSP?");
     _parser.recv("$GPSP: %d", &state);
     _parser.recv("OK");
@@ -461,8 +462,10 @@ int MTSASInterface::get_gps_state(){
 
 bool MTSASInterface::set_gps_state(int state){
     bool res = true;
+    //Check if the gos is already in the requested state
     if(get_gps_state() != state){
         at_mutex.lock();
+        //Set gps state
         res = _parser.send("AT$GPSP=%d", state) && _parser.recv("OK");
         at_mutex.unlock();
     }
@@ -471,14 +474,40 @@ bool MTSASInterface::set_gps_state(int state){
 
 int find_dir(char* coord){
     int i = 0;
+    //Look for the cardinal direction in the coordinate
     while (coord[i] != 'W' && coord[i] != 'N' && coord[i] != 'S' && coord[i] != 'E'){
         i++;
     }
     char dir = coord[i];
+    /**
+    According to ISO 6709:
+        North latitude is positive
+        East longitude is positive
+    **/
     return (dir == 'W' || dir == 'S') ? -1 : 1;
 }
 
 void format_data(gps_data* data){
+    /**
+    Response from the radio is:
+    <latitude> - format is ddmm.mmmm N/S (referred to GGA sentence)
+    where:
+    dd - degrees
+    00..90
+    mm.mmmm - minutes
+    00.0000..59.9999
+    N/S: North / South
+    <longitude> - format is dddmm.mmmm E/W (referred to GGA sentence)
+    where:
+    ddd - degrees
+    000..180
+    mm.mmmm - minutes
+    00.0000..59.9999
+    E/W: East / West
+    
+
+    This function converts this to ISO 6709 GPS standard
+    **/
     char lat_deg[2];
     char long_deg[3];
     char lat_min[6];
@@ -487,10 +516,12 @@ void format_data(gps_data* data){
     strncpy(long_deg, data->longitude, 3);
     strncpy(lat_min, data->latitude+2, 6);
     strncpy(long_min, data->longitude+3, 6);
+    //Find the cardinal direction of the coordinate
     int lat_dir = find_dir(data->latitude);
     int long_dir = find_dir(data->longitude);
     memset(&data->longitude[0], 0, sizeof(data->longitude));
     memset(&data->latitude[0], 0, sizeof(data->latitude));
+    //Convert string values to floats and compute ISO 6709 GPS coordinates
     float lat = lat_dir * (std::atof(lat_deg) + std::atof(lat_min)/60);
     float lon = long_dir * (std::atof(long_deg) + std::atof(long_min)/60);
     sprintf(data->latitude, "%f", lat);
@@ -501,23 +532,33 @@ gps_data MTSASInterface::get_gps_location(const char* lat_default, const char* l
     //enable GPS
     set_gps_state(1); 
     struct gps_data data = {"None", "None", "None", "None"};
+    //Start querying location
     bool res = _parser.send("AT$GPSACP") && _parser.recv("OK");
+    if (!res){
+        //Return immediately if we cannot turn on the GPS module
+        return data;
+    }
     Timer t;
     t.start(); 
-    bool resp = false;
-    while(!resp && t.read()<120){
+    bool fix = false;
+    //Timeout if we do not receive a gps location in two minutes
+    while(!fix && t.read()<120){
         at_mutex.lock();
+        //Query the GPS location
         _parser.send("AT$GPSACP");
-        resp = _parser.recv("$GPSACP:%[^,],%[^,],%[^,],%*[^,],%[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^\n]", data.UTC, data.latitude, data.longitude, data.altitude);
+        //Parse the radio response
+        fix = _parser.recv("$GPSACP:%[^,],%[^,],%[^,],%*[^,],%[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^\n]", data.UTC, data.latitude, data.longitude, data.altitude);
         _parser.recv("OK");
         at_mutex.unlock();
         wait(4);
     }
     set_gps_state(0);
-    if(resp){
+    if(fix){
+        //Format the coordinated to ISO 6709 if we got a GPS fix
         format_data(&data);
     }
     else{
+        //Use default values if we did not get a fix
         strcpy(data.latitude, lat_default);
         strcpy(data.longitude, lon_default);
     }
