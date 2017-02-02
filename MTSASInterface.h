@@ -90,8 +90,23 @@ public:
  
     nsapi_error_t gethostbyname(const char* name, SocketAddress *address, nsapi_version_t version);
 
+    /** Get the gps location of the device
+     *  @param lat_default  the default latitude if gps module fails to get a fix
+     *  @param lon_default  the defauly longitude if gps module fails to get a fix
+     *  @return             struct of type gps_data
+     */
     virtual gps_data get_gps_location(const char* lat_default="None", const char* lon_default="None");   
+    
+    /** Get the imei of the device
+     *  @param imei the buffer in which to store the imei number
+     */
     virtual void get_imei(char* imei);
+    
+    /** Attach a function to be called when a text is recevieds
+     *  @param callback  function pointer to a callback that will accept the message 
+     *  contents when a text is received.
+     */
+    virtual void sms_attach(void (*callback)(char *));
 
 protected:
     virtual bool set_gps_state(int state);
@@ -203,7 +218,6 @@ protected:
      */
     virtual void socket_attach(void *handle, void (*callback)(void *), void *data);
     
-
     virtual bool registered();
     virtual bool set_ip_addr();    
     virtual nsapi_error_t init();
@@ -216,9 +230,14 @@ private:
     BufferedSerial _serial;                 // Serial object for parser to communicate with radio
     ATParser _parser;                       // Send AT commands and parse responses
     Thread event_thread;                    // Thread to poll for SRING indicating incoming socket data
+    Thread sms_event_thread;
     Mutex at_mutex;                         // Mutex that only allows one thread at a time to execute AT Commands
     SocketAddress _ip_address;              // Local IP address
     Semaphore rx_sem;                       // Semphore to signal event_thread to check SRING
+    Semaphore sms_rx_sem;                   // Semaphore to signal sms_event_thread to check for incoming text 
+    void sms_rx_sem_release();              // Release the sms semaphore on serial RX
+    void sms_listen();                      // Configure device to listen for text messages 
+    void handle_sms_event();                // Handle incoming text data
     char _mac_address[NSAPI_MAC_SIZE];      // local Mac
     char _pin[sizeof("1234")];              // Cell pin
     void event();                           // Event signifying socket rcv data 	
@@ -228,8 +247,9 @@ private:
     struct {
         void (*callback)(void *);
         void *data;
-    } _cbs[MTSAS_SOCKET_COUNT];             //Callbacks for socket_attach 
-    DigitalOut reset;                       //Set RESET - Set the hardware reset line to the radio 
+    } _cbs[MTSAS_SOCKET_COUNT];             // Callbacks for socket_attach 
+    DigitalOut reset;                       // Set RESET - Set the hardware reset line to the radio 
+    void (*_sms_cb)(char *);                // Callback when text message is received 
 };
 
 #endif

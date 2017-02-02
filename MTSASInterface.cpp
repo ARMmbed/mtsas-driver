@@ -49,6 +49,7 @@ MTSASInterface::MTSASInterface(PinName tx, PinName rx, bool debug)
     //PDP context
     context = 1;
 }
+
 MTSASInterface::~MTSASInterface(){
 }
 
@@ -389,10 +390,65 @@ void MTSASInterface::get_imei(char* imei){
     at_mutex.unlock();
 }
 
+void MTSASInterface::sms_attach(void (*callback)(char*)){
+    _sms_cb = callback;
+    sms_listen();
+} 
+
+void MTSASInterface::sms_rx_sem_release(){  
+    sms_rx_sem.release();
+}
+
+void MTSASInterface::sms_listen(){
+    at_mutex.lock();
+    //Receive texts in text mode (unencoded)
+    _parser.send("AT+CMGF=1");
+    _parser.recv("OK");
+    //Show all values in result codes
+    _parser.send("AT+CSDH=1");
+    _parser.recv("OK");
+    //Specify the buffering of unsolicited text notifications to go to TA
+    //and also that the text message be displayed with the notification
+    _parser.send("AT+CNMI=2,2");    
+    _parser.recv("OK");
+    at_mutex.unlock();
+    //Signal thread when there is a serial rx
+    _serial.attach(callback(this, &MTSASInterface::sms_rx_sem_release));
+    sms_event_thread.start(callback(this, &MTSASInterface::handle_sms_event));
+}
+
+void MTSASInterface::handle_sms_event(){
+    while(true){
+        //Wait for signal from serial RX
+        sms_rx_sem.wait();
+        //Unlock the mutex controlling AT command execution
+        at_mutex.lock();
+        _parser.setTimeout(0);
+        //Check for +CMT incoming message
+        char msg[256];
+        int length;
+        //Parse notification for the length of the message
+        //TODO: Parse and handle phone number, timestamp, etc
+        bool res = _parser.recv("+CMT: %*[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^,],%*[^,],%d%*[\r]%*[\n]", &length);
+        if(res){
+            //Max message 256
+            if(length > 256){
+                length = 255;
+            }
+            //Read the message
+            _parser.read(msg, length);
+            _parser.setTimeout(MTSAS_MISC_TIMEOUT);
+            at_mutex.unlock();
+            msg[length]='\0';
+            //Raise an event if the socket has data
+            _sms_cb(msg);
+        }
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////
 //GPS module methods
 ////////////////////////////////////////////////////////////////////////
-
 int MTSASInterface::get_gps_state(){
     int state;
     at_mutex.lock();
