@@ -249,7 +249,6 @@ private:
         void (*callback)(void *);
         void *data;
     } _cbs[MTSAS_SOCKET_COUNT];             // Callbacks for socket_attach 
-    DigitalOut reset;                       // Set RESET - Set the hardware reset line to the radio 
     void (*_sms_cb)(char *);                // Callback when text message is received 
 };
 

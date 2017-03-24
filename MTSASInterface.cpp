@@ -32,7 +32,7 @@ enum registration_status {  NOT_REGISTERED = 0,
 #define MTSAS_COMMUNICATION_TIMEOUT 100
 
 MTSASInterface::MTSASInterface(PinName tx, PinName rx, bool debug)
-    : _serial(tx, rx, 1024), _parser(_serial), reset(PinName(RESET))
+    : _serial(tx, rx, 1024), _parser(_serial)
 {
     _parser.debugOn(debug);
     // Register message indicating incoming data as out of band 
